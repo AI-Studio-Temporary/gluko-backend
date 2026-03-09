@@ -48,32 +48,28 @@ Gluko is an AI-powered web application designed to help people with diabetes man
 
 ```
  Developer Machine
- +---------------------------------------------------------+
- |                                                         |
- |   docker-compose.yml (run from gluko-backend/)          |
- |                                                         |
- |  +------------------+     +-------------------------+   |
- |  |  gluko_frontend  |     |     gluko_backend       |   |
- |  |  Next.js 14      +---->|  Django 5 + DRF         |   |
- |  |  localhost:3000  |     |  localhost:8000         |   |
- |  |                  |     |                         |   |
- |  |  ../gluko-       |     |  ./  (gluko-backend/)   |   |
- |  |  frontend/       |     |                         |   |
- |  +------------------+     +------------+------------+   |
- |                                        |                |
- |                                    psycopg2             |
- |                                        |                |
- |                          +-------------v-----------+    |
- |                          |       gluko_db          |    |
- |                          |   PostgreSQL 16         |    |
- |                          |   localhost:5432        |    |
- |                          |   volume: postgres_data |    |
- |                          +-------------------------+    |
- |                                                         |
- +---------------------------------------------------------+
+ +---------------------------------------------------------------+
+ |                                                               |
+ |  Console 1 (Docker)            Console 2 (local)             |
+ |  +--------------------------+  +---------------------------+  |
+ |  |   gluko_backend          |  |   gluko-frontend          |  |
+ |  |   Django 5 + DRF         |  |   Next.js 14              |  |
+ |  |   localhost:8000         |<-+   localhost:3000          |  |
+ |  |   docker compose up      |  |   npm run dev             |  |
+ |  +-----------+--------------+  +---------------------------+  |
+ |              |                                                 |
+ |          psycopg2                                              |
+ |              |                                                 |
+ |    +---------v----------+                                      |
+ |    |   Supabase         |                                      |
+ |    |   PostgreSQL       |  <-- cloud, no local container       |
+ |    |   (hosted)         |                                      |
+ |    +--------------------+                                      |
+ |                                                               |
+ +---------------------------------------------------------------+
 
  Request flow:
-   Browser --> Next.js (SSR/CSR) --> Django REST API --> PostgreSQL
+   Browser --> Next.js (SSR/CSR) --> Django REST API --> Supabase (PostgreSQL)
                                           |
                                      (Sprint 2+)
                                           |
@@ -85,8 +81,6 @@ Gluko is an AI-powered web application designed to help people with diabetes man
 
 ## 3. Prerequisites
 
-Ensure all of the following are installed before proceeding.
-
 | Tool | Minimum Version | Check Command |
 |------|----------------|---------------|
 | Docker Desktop | 24.x | `docker --version` |
@@ -96,73 +90,54 @@ Ensure all of the following are installed before proceeding.
 
 > **Note:** Docker Compose v2 is invoked as `docker compose` (no hyphen). If your system only has v1, use `docker-compose` instead. All examples below use v2 syntax.
 
+The frontend runs independently — see `gluko-frontend/README.md` for its own setup.
+
 ---
 
 ## 4. First-Time Setup
 
 Follow every step in order. Do not skip steps.
 
-### Step 1 - Clone both repositories as siblings
-
-Both repos must live in the same parent directory because `docker-compose.yml` references the frontend with a relative path (`../gluko-frontend`).
+### Step 1 - Clone the repository
 
 ```bash
-# Create (or navigate to) your workspace directory
-mkdir -p ~/projects/gluko
-cd ~/projects/gluko
-
-# Clone backend
 git clone git@github-uts:AI-Studio-Temporary/gluko-backend.git
-
-# Clone frontend
-git clone git@github-uts:AI-Studio-Temporary/gluko-frontend.git
+cd gluko-backend
 ```
 
-Your directory layout must look like this:
-
-```
-gluko/
-+-- gluko-backend/    <-- docker-compose.yml lives here
-+-- gluko-frontend/   <-- built as a sibling
-```
-
-### Step 2 - Copy and verify the environment file
+### Step 2 - Set up the environment file
 
 ```bash
-cd gluko-backend
 cp .env.example .env
 ```
 
-The `.env` file is pre-populated with safe development defaults. You do **not** need to change anything to get the stack running locally. See [Section 5](#5-environment-variables) for a full explanation of every variable.
+Open `.env` and set your `DATABASE_URL` to the Supabase Session Pooler connection string:
 
-> **Security:** `.env` is listed in `.gitignore`. Never commit it. Never share it in Slack, Teams, or any chat platform.
+```
+DATABASE_URL=postgresql://postgres.xvgydqzkfyirprsgdfee:[YOUR-PASSWORD]@aws-0-ap-southeast-2.pooler.supabase.com:5432/postgres
+```
 
-### Step 3 - Build and start all three services
+Get this from: **Supabase Dashboard → Connect → Connection String → Session pooler**
+
+> **Security:** `.env` is git-ignored. Never commit it. Never share it in chat.
+
+### Step 3 - Build and start the backend
 
 ```bash
 # From inside gluko-backend/
 docker compose up --build
 ```
 
-The first run takes 3-5 minutes because Docker must:
-1. Pull `python:3.12-slim` and `postgres:16` base images
-2. Pull `node:20-alpine`
-3. Install Python packages (`pip install`)
-4. Install Node packages (`npm install`)
+The first run takes 2-3 minutes while Docker pulls `python:3.12-slim` and installs packages. On subsequent runs startup takes about 10 seconds.
 
-On subsequent runs (no code changes), startup takes about 10-15 seconds.
+Django will automatically run `migrate` on startup, creating all tables in Supabase.
 
-### Step 4 - Verify everything is running
-
-Open three browser tabs:
+### Step 4 - Verify the backend is running
 
 | Service | URL | Expected result |
 |---------|-----|-----------------|
 | Django admin | http://localhost:8000/admin/ | Login page |
-| Django API root | http://localhost:8000/api/token/ | JSON response |
-| Next.js frontend | http://localhost:3000 | Gluko landing page |
-
-If any service fails, see [Section 9 - Troubleshooting](#9-troubleshooting).
+| JWT endpoint | http://localhost:8000/api/token/ | JSON response |
 
 ### Step 5 - Create your superuser (first time only)
 
@@ -171,6 +146,17 @@ docker compose exec backend python manage.py createsuperuser
 ```
 
 Follow the prompts. You can then log in at http://localhost:8000/admin/.
+
+### Step 6 - Start the frontend (separate console)
+
+The frontend runs independently. See `gluko-frontend/README.md` for setup instructions. In short:
+
+```bash
+cd ../gluko-frontend
+npm install
+npm run dev
+# Next.js at http://localhost:3000
+```
 
 ---
 
