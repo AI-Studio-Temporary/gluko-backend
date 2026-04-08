@@ -76,7 +76,12 @@ class ChatMessageView(APIView):
             {"role": msg.role, "content": msg.content}
             for msg in session.messages.all()
         ]
-        reply = get_tutor_response(history)
+        profile_context = ''
+        try:
+            profile_context = request.user.profile.to_context_string()
+        except Exception:
+            pass
+        reply = get_tutor_response(history, profile_context)
 
         # Save assistant reply
         assistant_msg = ChatMessage.objects.create(
