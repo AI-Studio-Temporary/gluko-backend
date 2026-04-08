@@ -1,5 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
+from django.db.models import Avg, Max, Min, Sum
+from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -134,3 +136,65 @@ class BolusHistoryView(APIView):
         calcs = BolusCalculation.objects.filter(user=request.user)
         serializer = BolusCalculationSerializer(calcs, many=True)
         return Response(serializer.data)
+
+
+# ── Dashboard ────────────────────────────────────────────────
+
+
+class DashboardSummaryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        today = timezone.localdate()
+        user = request.user
+
+        # Glucose
+        glucose_qs = GlucoseLog.objects.filter(user=user, logged_at__date=today)
+        glucose_agg = glucose_qs.aggregate(avg=Avg('value_mgdl'), min=Min('value_mgdl'), max=Max('value_mgdl'))
+        latest_glucose = glucose_qs.order_by('-logged_at').first()
+        glucose_data = {
+            'latest': {
+                'value_mgdl': latest_glucose.value_mgdl,
+                'context': latest_glucose.measurement_context,
+                'logged_at': latest_glucose.logged_at.isoformat(),
+            } if latest_glucose else None,
+            'count': glucose_qs.count(),
+            'avg': round(glucose_agg['avg']) if glucose_agg['avg'] else None,
+            'min': glucose_agg['min'],
+            'max': glucose_agg['max'],
+        }
+
+        # Insulin
+        insulin_qs = InsulinLog.objects.filter(user=user, logged_at__date=today)
+        insulin_total = insulin_qs.aggregate(total=Sum('units'))['total'] or Decimal('0')
+        insulin_entries = list(insulin_qs.values('id', 'units', 'insulin_type', 'logged_at')[:5])
+
+        # Meals
+        meals_qs = MealLog.objects.filter(user=user, logged_at__date=today)
+        carbs_total = meals_qs.aggregate(total=Sum('estimated_carbs'))['total'] or Decimal('0')
+        meal_entries = list(meals_qs.values('id', 'description', 'estimated_carbs', 'meal_type', 'logged_at')[:5])
+
+        # Sport
+        sport_qs = SportLog.objects.filter(user=user, logged_at__date=today)
+        sport_total = sport_qs.aggregate(total=Sum('duration_min'))['total'] or 0
+        sport_entries = list(sport_qs.values('id', 'activity_type', 'duration_min', 'intensity', 'logged_at')[:5])
+
+        return Response({
+            'date': today.isoformat(),
+            'glucose': glucose_data,
+            'insulin': {
+                'total_units': float(insulin_total),
+                'count': insulin_qs.count(),
+                'entries': insulin_entries,
+            },
+            'meals': {
+                'total_carbs': float(carbs_total),
+                'count': meals_qs.count(),
+                'entries': meal_entries,
+            },
+            'sport': {
+                'total_minutes': sport_total,
+                'count': sport_qs.count(),
+                'entries': sport_entries,
+            },
+        })
