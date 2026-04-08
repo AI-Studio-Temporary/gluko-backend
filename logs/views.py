@@ -1,6 +1,7 @@
 from decimal import Decimal, ROUND_HALF_UP
 
-from django.db.models import Avg, Max, Min, Sum
+from django.db.models import Avg, Count, Max, Min, Sum
+from django.db.models.functions import TruncDate
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import IsAuthenticated
@@ -196,5 +197,112 @@ class DashboardSummaryView(APIView):
                 'total_minutes': sport_total,
                 'count': sport_qs.count(),
                 'entries': sport_entries,
+            },
+        })
+
+
+class TrendsView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    ALLOWED_DAYS = {7, 14, 30}
+
+    def get(self, request):
+        try:
+            days = int(request.query_params.get('days', 7))
+        except (ValueError, TypeError):
+            days = 7
+        if days not in self.ALLOWED_DAYS:
+            days = 7
+
+        user = request.user
+        today = timezone.localdate()
+        start_date = today - timezone.timedelta(days=days - 1)
+
+        # Daily glucose aggregates
+        glucose_daily = (
+            GlucoseLog.objects.filter(user=user, logged_at__date__gte=start_date)
+            .annotate(date=TruncDate('logged_at'))
+            .values('date')
+            .annotate(
+                glucose_avg=Avg('value_mgdl'),
+                glucose_min=Min('value_mgdl'),
+                glucose_max=Max('value_mgdl'),
+                glucose_count=Count('id'),
+            )
+            .order_by('date')
+        )
+        glucose_by_date = {row['date']: row for row in glucose_daily}
+
+        # Daily insulin aggregates
+        insulin_daily = (
+            InsulinLog.objects.filter(user=user, logged_at__date__gte=start_date)
+            .annotate(date=TruncDate('logged_at'))
+            .values('date')
+            .annotate(insulin_total=Sum('units'))
+            .order_by('date')
+        )
+        insulin_by_date = {row['date']: float(row['insulin_total']) for row in insulin_daily}
+
+        # Daily carb aggregates
+        carbs_daily = (
+            MealLog.objects.filter(user=user, logged_at__date__gte=start_date)
+            .annotate(date=TruncDate('logged_at'))
+            .values('date')
+            .annotate(carbs_total=Sum('estimated_carbs'))
+            .order_by('date')
+        )
+        carbs_by_date = {row['date']: float(row['carbs_total'] or 0) for row in carbs_daily}
+
+        # Daily sport aggregates
+        sport_daily = (
+            SportLog.objects.filter(user=user, logged_at__date__gte=start_date)
+            .annotate(date=TruncDate('logged_at'))
+            .values('date')
+            .annotate(sport_minutes=Sum('duration_min'), sport_count=Count('id'))
+            .order_by('date')
+        )
+        sport_by_date = {row['date']: row for row in sport_daily}
+
+        # Build daily array
+        daily = []
+        for i in range(days):
+            d = start_date + timezone.timedelta(days=i)
+            g = glucose_by_date.get(d, {})
+            s = sport_by_date.get(d, {})
+            daily.append({
+                'date': d.isoformat(),
+                'glucose_avg': round(g['glucose_avg']) if g.get('glucose_avg') else None,
+                'glucose_min': g.get('glucose_min'),
+                'glucose_max': g.get('glucose_max'),
+                'glucose_count': g.get('glucose_count', 0),
+                'insulin_total': insulin_by_date.get(d, 0),
+                'carbs_total': carbs_by_date.get(d, 0),
+                'sport_minutes': s.get('sport_minutes', 0),
+                'sport_count': s.get('sport_count', 0),
+            })
+
+        # Period summary
+        all_glucose = GlucoseLog.objects.filter(user=user, logged_at__date__gte=start_date)
+        glucose_agg = all_glucose.aggregate(avg=Avg('value_mgdl'))
+        total_glucose = all_glucose.count()
+        in_range = all_glucose.filter(value_mgdl__gte=70, value_mgdl__lte=180).count()
+        in_range_pct = round(in_range / total_glucose * 100) if total_glucose > 0 else None
+
+        all_insulin = InsulinLog.objects.filter(user=user, logged_at__date__gte=start_date)
+        insulin_sum = float(all_insulin.aggregate(total=Sum('units'))['total'] or 0)
+
+        all_carbs = MealLog.objects.filter(user=user, logged_at__date__gte=start_date)
+        carbs_sum = float(all_carbs.aggregate(total=Sum('estimated_carbs'))['total'] or 0)
+
+        days_with_data = len([d for d in daily if d['glucose_count'] > 0])
+
+        return Response({
+            'period_days': days,
+            'daily': daily,
+            'summary': {
+                'glucose_avg': round(glucose_agg['avg']) if glucose_agg['avg'] else None,
+                'glucose_in_range_pct': in_range_pct,
+                'insulin_avg_daily': round(insulin_sum / days_with_data, 1) if days_with_data else None,
+                'carbs_avg_daily': round(carbs_sum / days_with_data) if days_with_data else None,
             },
         })

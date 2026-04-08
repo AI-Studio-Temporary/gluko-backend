@@ -9,6 +9,7 @@ from .views import (
     InsulinLogViewSet,
     MealLogViewSet,
     SportLogViewSet,
+    TrendsView,
 )
 
 router = DefaultRouter()
@@ -21,4 +22,5 @@ urlpatterns = router.urls + [
     path('bolus/calculate/', BolusCalculateView.as_view(), name='bolus-calculate'),
     path('bolus/history/', BolusHistoryView.as_view(), name='bolus-history'),
     path('dashboard/summary/', DashboardSummaryView.as_view(), name='dashboard-summary'),
+    path('dashboard/trends/', TrendsView.as_view(), name='dashboard-trends'),
 ]

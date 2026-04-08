@@ -410,3 +410,57 @@ class DashboardSummaryTests(LogTestMixin, APITestCase):
         self.client.credentials()
         response = self.client.get(self.url)
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+
+# ── Trends ──────────────────────────────────────────────────
+
+
+class TrendsTests(LogTestMixin, APITestCase):
+    url = '/api/logs/dashboard/trends/'
+
+    def setUp(self):
+        self._create_users()
+
+    def test_empty_trends(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertEqual(data['period_days'], 7)
+        self.assertEqual(len(data['daily']), 7)
+        self.assertIsNone(data['summary']['glucose_avg'])
+
+    def test_trends_with_data(self):
+        now = timezone.now()
+        for i in range(3):
+            day = now - timedelta(days=i)
+            GlucoseLog.objects.create(user=self.user, value_mgdl=120 + i * 10, logged_at=day)
+            InsulinLog.objects.create(user=self.user, units=20 + i, insulin_type='basal', logged_at=day)
+            MealLog.objects.create(user=self.user, description='Meal', estimated_carbs=50 + i * 10, logged_at=day)
+
+        response = self.client.get(self.url)
+        data = response.json()
+        self.assertEqual(data['period_days'], 7)
+        self.assertIsNotNone(data['summary']['glucose_avg'])
+        self.assertIsNotNone(data['summary']['glucose_in_range_pct'])
+        self.assertIsNotNone(data['summary']['insulin_avg_daily'])
+        self.assertIsNotNone(data['summary']['carbs_avg_daily'])
+
+    def test_days_param(self):
+        response = self.client.get(self.url, {'days': 14})
+        self.assertEqual(response.json()['period_days'], 14)
+        self.assertEqual(len(response.json()['daily']), 14)
+
+    def test_invalid_days_defaults_to_7(self):
+        response = self.client.get(self.url, {'days': 5})
+        self.assertEqual(response.json()['period_days'], 7)
+
+    def test_excludes_other_users(self):
+        GlucoseLog.objects.create(user=self.other_user, value_mgdl=100)
+
+        response = self.client.get(self.url)
+        self.assertIsNone(response.json()['summary']['glucose_avg'])
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
