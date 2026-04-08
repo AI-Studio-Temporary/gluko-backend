@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import GlucoseLog, InsulinLog, MealLog
+from .models import GlucoseLog, InsulinLog, MealLog, SportLog, BolusCalculation
 
 
 @admin.register(GlucoseLog)
@@ -23,3 +23,15 @@ class MealLogAdmin(admin.ModelAdmin):
     @admin.display(description='Description')
     def description_short(self, obj):
         return obj.description[:80]
+
+
+@admin.register(SportLog)
+class SportLogAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'activity_type', 'duration_min', 'intensity', 'logged_at')
+    list_filter = ('intensity', 'logged_at')
+
+
+@admin.register(BolusCalculation)
+class BolusCalculationAdmin(admin.ModelAdmin):
+    list_display = ('id', 'user', 'carbohydrates_g', 'total_dose', 'calculated_at')
+    list_filter = ('calculated_at',)
