@@ -10,6 +10,7 @@ INTENT CATEGORIES:
 - activity_log: User reports exercise or physical activity (e.g. "Went for a 30min run")
 - bolus_request: User wants to calculate insulin dose (e.g. "How much insulin for 60g carbs?")
 - summary_request: User wants a summary of their logs (e.g. "Show my day", "What did I eat today?")
+- profile_query: User asks about their profile, settings, or what the assistant knows about them (e.g. "What do you know about me?", "What's my ICR?", "Show my profile")
 - greeting: Simple greeting or thanks (e.g. "Hi", "Thanks")
 - out_of_scope: Unrelated to diabetes management (e.g. "What's the weather?")
 

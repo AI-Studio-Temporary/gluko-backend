@@ -90,6 +90,10 @@ class Orchestrator:
             content = summary.handle(user)
             return AgentResult(content, 'summary', intent, confidence)
 
+        if intent == 'profile_query':
+            content = tutor.handle(message, history, profile_context)
+            return AgentResult(content, 'tutor', intent, confidence)
+
         # Fallback: treat as diabetes question
         content = tutor.handle(message, history, profile_context)
         return AgentResult(content, 'tutor', intent, confidence)
