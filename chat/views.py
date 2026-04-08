@@ -25,6 +25,19 @@ class ChatSessionListCreateView(generics.ListCreateAPIView):
         serializer.save(user=self.request.user)
 
 
+class ChatSessionDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, session_id):
+        session = ChatSession.objects.filter(
+            id=session_id, user=request.user
+        ).first()
+        if not session:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        session.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+
 class ChatMessageView(APIView):
     permission_classes = [IsAuthenticated]
 
