@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     # Local
     'users',
     'chat',
+    'logs',
 ]
 
 MIDDLEWARE = [
