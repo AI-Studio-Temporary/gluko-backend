@@ -352,3 +352,61 @@ class BolusCalculateTests(LogTestMixin, APITestCase):
         self._auth(self.user)
         response = self.client.get(self.history_url)
         self.assertEqual(len(response.json()), 1)
+
+
+# ── Dashboard Summary ───────────────────────────────────────
+
+
+class DashboardSummaryTests(LogTestMixin, APITestCase):
+    url = '/api/logs/dashboard/summary/'
+
+    def setUp(self):
+        self._create_users()
+
+    def test_empty_dashboard(self):
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        data = response.json()
+        self.assertIn('date', data)
+        self.assertEqual(data['glucose']['count'], 0)
+        self.assertIsNone(data['glucose']['latest'])
+        self.assertEqual(data['insulin']['total_units'], 0)
+        self.assertEqual(data['meals']['total_carbs'], 0)
+        self.assertEqual(data['sport']['total_minutes'], 0)
+
+    def test_dashboard_with_data(self):
+        now = timezone.now()
+        GlucoseLog.objects.create(user=self.user, value_mgdl=120, logged_at=now)
+        GlucoseLog.objects.create(user=self.user, value_mgdl=180, logged_at=now)
+        InsulinLog.objects.create(user=self.user, units=5, insulin_type='bolus', logged_at=now)
+        MealLog.objects.create(user=self.user, description='Lunch', estimated_carbs=60, logged_at=now)
+        SportLog.objects.create(user=self.user, activity_type='run', duration_min=30, logged_at=now)
+
+        response = self.client.get(self.url)
+        data = response.json()
+        self.assertEqual(data['glucose']['count'], 2)
+        self.assertEqual(data['glucose']['avg'], 150)
+        self.assertEqual(data['glucose']['min'], 120)
+        self.assertEqual(data['glucose']['max'], 180)
+        self.assertIsNotNone(data['glucose']['latest'])
+        self.assertEqual(data['insulin']['total_units'], 5.0)
+        self.assertEqual(data['meals']['total_carbs'], 60.0)
+        self.assertEqual(data['sport']['total_minutes'], 30)
+
+    def test_excludes_other_days(self):
+        yesterday = timezone.now() - timedelta(days=1)
+        GlucoseLog.objects.create(user=self.user, value_mgdl=100, logged_at=yesterday)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.json()['glucose']['count'], 0)
+
+    def test_excludes_other_users(self):
+        GlucoseLog.objects.create(user=self.other_user, value_mgdl=100)
+
+        response = self.client.get(self.url)
+        self.assertEqual(response.json()['glucose']['count'], 0)
+
+    def test_requires_auth(self):
+        self.client.credentials()
+        response = self.client.get(self.url)
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
