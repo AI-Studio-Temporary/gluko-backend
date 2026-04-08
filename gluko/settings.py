@@ -26,6 +26,7 @@ INSTALLED_APPS = [
     # Local
     'users',
     'chat',
+    'logs',
 ]
 
 MIDDLEWARE = [
@@ -65,6 +66,13 @@ DATABASES = {
         conn_max_age=600,
     )
 }
+
+import sys
+if 'test' in sys.argv:
+    DATABASES['default'] = {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'test.db',
+    }
 
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},
