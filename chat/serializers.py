@@ -13,8 +13,8 @@ class ChatSessionSerializer(serializers.ModelSerializer):
 class ChatMessageSerializer(serializers.ModelSerializer):
     class Meta:
         model = ChatMessage
-        fields = ['id', 'role', 'content', 'created_at']
-        read_only_fields = ['id', 'role', 'content', 'created_at']
+        fields = ['id', 'role', 'content', 'agent_used', 'intent', 'created_at']
+        read_only_fields = ['id', 'role', 'content', 'agent_used', 'intent', 'created_at']
 
 
 class SendMessageSerializer(serializers.Serializer):

@@ -1,12 +1,13 @@
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 
 from django.contrib.auth.models import User
 from rest_framework import status
 from rest_framework.test import APITestCase
 from rest_framework_simplejwt.tokens import RefreshToken
 
+from .agents.orchestrator import AgentResult
+from .agents.safety import check_safety
 from .models import ChatSession, ChatMessage
-from .safety import check_safety, EMERGENCY_RESPONSE
 
 
 class ChatSessionTests(APITestCase):
@@ -54,16 +55,24 @@ class ChatMessageTests(APITestCase):
         self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
         self.session = ChatSession.objects.create(user=self.user)
 
-    @patch('chat.views.get_tutor_response', return_value='Here is some info about blood sugar.')
-    def test_send_message(self, mock_tutor):
+    @patch('chat.views.orchestrator.process')
+    def test_send_message(self, mock_process):
+        mock_process.return_value = AgentResult(
+            content='Here is some info about blood sugar.',
+            agent_used='tutor',
+            intent='diabetes_question',
+        )
         response = self.client.post(
             f'/api/chat/sessions/{self.session.id}/messages/',
             {'message': 'What is a normal blood sugar level?'},
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()['role'], 'assistant')
-        self.assertIn('blood sugar', response.json()['content'])
-        mock_tutor.assert_called_once()
+        data = response.json()
+        self.assertEqual(data['role'], 'assistant')
+        self.assertEqual(data['agent_used'], 'tutor')
+        self.assertEqual(data['intent'], 'diabetes_question')
+        self.assertIn('blood sugar', data['content'])
+        mock_process.assert_called_once()
         # Check auto-title
         self.session.refresh_from_db()
         self.assertEqual(self.session.title, 'What is a normal blood sugar level?')
@@ -80,8 +89,9 @@ class ChatMessageTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(response.json(), [])
 
-    @patch('chat.views.get_tutor_response', return_value='Reply 1')
-    def test_get_history_with_messages(self, mock_tutor):
+    @patch('chat.views.orchestrator.process')
+    def test_get_history_with_messages(self, mock_process):
+        mock_process.return_value = AgentResult('Reply 1', 'tutor', 'diabetes_question')
         self.client.post(
             f'/api/chat/sessions/{self.session.id}/messages/',
             {'message': 'Hello'},
@@ -105,64 +115,74 @@ class ChatMessageTests(APITestCase):
         response = self.client.get('/api/chat/sessions/9999/messages/')
         self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
+    @patch('chat.views.orchestrator.process')
+    def test_agent_metadata_in_response(self, mock_process):
+        mock_process.return_value = AgentResult(
+            content='Glucose logged: 120 mg/dL',
+            agent_used='log_agent',
+            intent='glucose_log',
+            confidence=0.95,
+        )
+        response = self.client.post(
+            f'/api/chat/sessions/{self.session.id}/messages/',
+            {'message': 'My glucose is 120'},
+        )
+        data = response.json()
+        self.assertEqual(data['agent_used'], 'log_agent')
+        self.assertEqual(data['intent'], 'glucose_log')
+
+
+# ── Safety Gate Tests ────────────────────────────────────────
+
 
 class SafetyGateTests(APITestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            username='safe@example.com', email='safe@example.com', password='Pass1234!'
-        )
-        refresh = RefreshToken.for_user(self.user)
-        self.client.credentials(HTTP_AUTHORIZATION=f'Bearer {refresh.access_token}')
-        self.session = ChatSession.objects.create(user=self.user)
+    """Test the enhanced safety gate."""
 
-    @patch('chat.views.get_tutor_response')
-    def test_emergency_keyword_triggers_safety(self, mock_tutor):
-        response = self.client.post(
-            f'/api/chat/sessions/{self.session.id}/messages/',
-            {'message': 'My friend is having a seizure what do I do'},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn('emergency', response.json()['content'].lower())
-        mock_tutor.assert_not_called()
-
-    @patch('chat.views.get_tutor_response', return_value='Normal response')
-    def test_normal_message_passes_through(self, mock_tutor):
-        response = self.client.post(
-            f'/api/chat/sessions/{self.session.id}/messages/',
-            {'message': 'What foods are good for managing diabetes?'},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(response.json()['content'], 'Normal response')
-        mock_tutor.assert_called_once()
-
-    @patch('chat.views.get_tutor_response')
-    def test_case_insensitive_matching(self, mock_tutor):
-        response = self.client.post(
-            f'/api/chat/sessions/{self.session.id}/messages/',
-            {'message': 'This is an EMERGENCY please help'},
-        )
-        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
-        self.assertIn('emergency', response.json()['content'].lower())
-        mock_tutor.assert_not_called()
-
-
-class SafetyGateUnitTests(APITestCase):
-    def test_emergency_keyword_returns_response(self):
+    def test_emergency_keyword_detected(self):
         result = check_safety('someone is unconscious')
-        self.assertEqual(result, EMERGENCY_RESPONSE)
+        self.assertIsNotNone(result)
+        self.assertTrue(result['is_emergency'])
+        self.assertEqual(result['severity'], 'CRITICAL')
 
-    def test_normal_message_returns_none(self):
+    def test_normal_message_passes(self):
         result = check_safety('What is a good breakfast for diabetics?')
         self.assertIsNone(result)
 
     def test_case_insensitive(self):
         result = check_safety('CALL 911 NOW')
-        self.assertEqual(result, EMERGENCY_RESPONSE)
+        self.assertIsNotNone(result)
 
-    def test_diabetic_coma_detected(self):
-        result = check_safety('I think this is a diabetic coma')
-        self.assertEqual(result, EMERGENCY_RESPONSE)
+    def test_severe_hypo_by_value(self):
+        result = check_safety('my glucose is 45 and I feel shaky')
+        self.assertIsNotNone(result)
+        self.assertEqual(result['type'], 'severe_hypoglycemia')
+        self.assertEqual(result['severity'], 'CRITICAL')
 
-    def test_severe_hypoglycemia_detected(self):
-        result = check_safety('signs of severe hypoglycemia')
-        self.assertEqual(result, EMERGENCY_RESPONSE)
+    def test_severe_hyper_by_value(self):
+        result = check_safety('blood sugar is 450')
+        self.assertIsNotNone(result)
+        self.assertEqual(result['type'], 'severe_hyperglycemia')
+
+    def test_normal_glucose_passes(self):
+        result = check_safety('my glucose is 120')
+        self.assertIsNone(result)
+
+    def test_dka_detected(self):
+        result = check_safety('I think I have DKA')
+        self.assertIsNotNone(result)
+
+    def test_mental_health_detected(self):
+        result = check_safety('I feel suicidal')
+        self.assertIsNotNone(result)
+        self.assertEqual(result['severity'], 'CRITICAL')
+
+    @patch('chat.views.orchestrator.process')
+    def test_safety_gate_in_chat_flow(self, mock_process):
+        """Safety gate should be triggered before orchestrator in the full flow."""
+        # The orchestrator itself handles safety, so we test it directly
+        from .agents import Orchestrator
+        orch = Orchestrator()
+        user = User.objects.create_user(username='safe@test.com', email='safe@test.com', password='Pass1234!')
+        result = orch.process('someone is having a seizure', [], user)
+        self.assertEqual(result.agent_used, 'safety_gate')
+        self.assertEqual(result.intent, 'emergency')

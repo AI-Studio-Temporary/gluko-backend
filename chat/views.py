@@ -3,14 +3,15 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from .agent import get_tutor_response
+from .agents import Orchestrator
 from .models import ChatSession, ChatMessage
-from .safety import check_safety
 from .serializers import (
     ChatSessionSerializer,
     ChatMessageSerializer,
     SendMessageSerializer,
 )
+
+orchestrator = Orchestrator()
 
 
 class ChatSessionListCreateView(generics.ListCreateAPIView):
@@ -58,36 +59,22 @@ class ChatMessageView(APIView):
             content=user_text,
         )
 
-        # Safety gate
-        emergency = check_safety(user_text)
-        if emergency:
-            assistant_msg = ChatMessage.objects.create(
-                session=session,
-                role=ChatMessage.Role.ASSISTANT,
-                content=emergency,
-            )
-            return Response(
-                ChatMessageSerializer(assistant_msg).data,
-                status=status.HTTP_201_CREATED,
-            )
-
-        # Build conversation history and call tutor
+        # Build conversation history for context
         history = [
-            {"role": msg.role, "content": msg.content}
+            {'role': msg.role, 'content': msg.content}
             for msg in session.messages.all()
         ]
-        profile_context = ''
-        try:
-            profile_context = request.user.profile.to_context_string()
-        except Exception:
-            pass
-        reply = get_tutor_response(history, profile_context)
 
-        # Save assistant reply
+        # Process through orchestrator
+        result = orchestrator.process(user_text, history, request.user)
+
+        # Save assistant reply with metadata
         assistant_msg = ChatMessage.objects.create(
             session=session,
             role=ChatMessage.Role.ASSISTANT,
-            content=reply,
+            content=result.content,
+            agent_used=result.agent_used,
+            intent=result.intent,
         )
 
         # Auto-set title from first user message

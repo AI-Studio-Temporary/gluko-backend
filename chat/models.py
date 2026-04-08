@@ -32,6 +32,8 @@ class ChatMessage(models.Model):
     )
     role = models.CharField(max_length=10, choices=Role.choices)
     content = models.TextField()
+    agent_used = models.CharField(max_length=50, blank=True, help_text='Which agent handled this message')
+    intent = models.CharField(max_length=50, blank=True, help_text='Classified intent')
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
