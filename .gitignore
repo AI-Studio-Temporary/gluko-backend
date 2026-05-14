@@ -134,6 +134,9 @@ celerybeat.pid
 # SageMath parsed files
 *.sage.py
 
+# Local tooling (Claude Code, IDE config, etc.)
+.claude/
+
 # Environments
 .env
 .envrc
