@@ -3,6 +3,13 @@
 import os
 import sys
 
+# Load .env for local (non-Docker) runs. In Docker, env vars come from env_file.
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
+
 
 def main():
     """Run administrative tasks."""
