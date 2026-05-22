@@ -75,11 +75,12 @@ class GlucoseLogTests(LogTestMixin, APITestCase):
 
     def test_date_filter(self):
         now = timezone.now()
+        local_today = timezone.localtime(now).date()
         yesterday = now - timedelta(days=1)
         GlucoseLog.objects.create(user=self.user, value_mgdl=100, logged_at=now)
         GlucoseLog.objects.create(user=self.user, value_mgdl=200, logged_at=yesterday)
 
-        response = self.client.get(self.url, {'date': now.strftime('%Y-%m-%d')})
+        response = self.client.get(self.url, {'date': local_today.isoformat()})
         self.assertEqual(len(response.json()), 1)
         self.assertEqual(response.json()[0]['value_mgdl'], 100)
 
@@ -121,12 +122,13 @@ class InsulinLogTests(LogTestMixin, APITestCase):
 
     def test_date_filter(self):
         now = timezone.now()
+        local_today = timezone.localtime(now).date()
         InsulinLog.objects.create(user=self.user, units=4, insulin_type='bolus', logged_at=now)
         InsulinLog.objects.create(
             user=self.user, units=20, insulin_type='basal', logged_at=now - timedelta(days=1),
         )
 
-        response = self.client.get(self.url, {'date': now.strftime('%Y-%m-%d')})
+        response = self.client.get(self.url, {'date': local_today.isoformat()})
         self.assertEqual(len(response.json()), 1)
 
 
@@ -177,12 +179,13 @@ class MealLogTests(LogTestMixin, APITestCase):
 
     def test_date_filter(self):
         now = timezone.now()
+        local_today = timezone.localtime(now).date()
         MealLog.objects.create(user=self.user, description='Today', logged_at=now)
         MealLog.objects.create(
             user=self.user, description='Yesterday', logged_at=now - timedelta(days=1),
         )
 
-        response = self.client.get(self.url, {'date': now.strftime('%Y-%m-%d')})
+        response = self.client.get(self.url, {'date': local_today.isoformat()})
         self.assertEqual(len(response.json()), 1)
         self.assertEqual(response.json()[0]['description'], 'Today')
 
@@ -256,11 +259,12 @@ class SportLogTests(LogTestMixin, APITestCase):
 
     def test_date_filter(self):
         now = timezone.now()
+        local_today = timezone.localtime(now).date()
         SportLog.objects.create(user=self.user, activity_type='run', duration_min=30, logged_at=now)
         SportLog.objects.create(
             user=self.user, activity_type='swim', duration_min=45, logged_at=now - timedelta(days=1),
         )
-        response = self.client.get(self.url, {'date': now.strftime('%Y-%m-%d')})
+        response = self.client.get(self.url, {'date': local_today.isoformat()})
         self.assertEqual(len(response.json()), 1)
 
 
