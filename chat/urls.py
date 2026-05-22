@@ -10,4 +10,9 @@ urlpatterns = [
         views.ChatMessageView.as_view(),
         name='chat-messages',
     ),
+    path(
+        'sessions/<int:session_id>/upload/',
+        views.ChatUploadView.as_view(),
+        name='chat-upload',
+    ),
 ]
